@@ -48,6 +48,15 @@ class CatchGame:
         self.YELLOW = (255, 210, 90)
         self.PINK = (255, 150, 200)
 
+        #button Colors
+        self.choice_colors = {
+            "green": (80, 200, 120),
+            "blue": (80, 130, 255),
+            "yellow": (255, 210, 90),
+            "pink":(255,192,203),
+
+        }
+
         # Basket
         self.basket = pygame.Rect(self.width // 2 - 150, self.height - 80, 300, 30)
         self.basket_speed = 12
@@ -126,6 +135,7 @@ class CatchGame:
             {"shape": "triangle", "correct": "yellow", "choices": ["yellow", "pink"]},
             {"shape": "circle", "correct": "blue", "choices": ["blue", "green"]}
         ]
+        random.shuffle(self.questions)
 
         self.reset_game()
 
@@ -133,7 +143,7 @@ class CatchGame:
     def reset_game(self):
         self.lives = 5
         self.score = 0
-        self.spawn_delay = 1.5
+        self.spawn_delay = 2.0
         self.last_spawn = time.time()
         self.objects = []
         self.game_over = False
@@ -372,24 +382,52 @@ class CatchGame:
     def draw_question_screen(self):
         self.screen.blit(self.bg_image, (0, 0))
         q = self.questions[self.current_question]
+
         text = self.font.render(f"What color is the {q['shape']}?", True, self.TEXT)
         self.screen.blit(text, (self.width // 2 - text.get_width() // 2, 200))
-        x, y = self.width // 2, 300
 
+        x, y = self.width // 2, 300
         img = self.shape_images[q["shape"]][0]
         rect = img.get_rect(center=(x, y))
         self.screen.blit(img, rect)
 
+        # Buttons
         rect1 = pygame.Rect(self.width // 2 - 200, 400, 150, 60)
         rect2 = pygame.Rect(self.width // 2 + 50, 400, 150, 60)
-        pygame.draw.rect(self.screen, (200, 200, 255), rect1)
-        pygame.draw.rect(self.screen, (200, 200, 255), rect2)
 
-        c1 = self.font.render(q["choices"][0], True, self.TEXT)
-        c2 = self.font.render(q["choices"][1], True, self.TEXT)
-        self.screen.blit(c1, (rect1.x + 20, rect1.y + 15))
-        self.screen.blit(c2, (rect2.x + 20, rect2.y + 15))
+        mouse_pos = pygame.mouse.get_pos()
 
+        choice1 = q["choices"][0]
+        choice2 = q["choices"][1]
+
+        # Get colors based on choice
+        color1 = self.choice_colors.get(choice1, (200, 200, 255))
+        color2 = self.choice_colors.get(choice2, (200, 200, 255))
+
+        # Hover effect (slightly darker)
+        def darken(color):
+            return (max(color[0] - 40, 0), max(color[1] - 40, 0), max(color[2] - 40, 0))
+
+        if rect1.collidepoint(mouse_pos):
+            color1 = darken(color1)
+
+        if rect2.collidepoint(mouse_pos):
+            color2 = darken(color2)
+
+        # Draw buttons
+        pygame.draw.rect(self.screen, color1, rect1, border_radius=10)
+        pygame.draw.rect(self.screen, color2, rect2, border_radius=10)
+
+        # Border
+        pygame.draw.rect(self.screen, (50, 50, 50), rect1, 3, border_radius=10)
+        pygame.draw.rect(self.screen, (50, 50, 50), rect2, 3, border_radius=10)
+
+        # Text (centered)
+        c1 = self.font.render(choice1, True, (0, 0, 0))
+        c2 = self.font.render(choice2, True, (0, 0, 0))
+
+        self.screen.blit(c1, c1.get_rect(center=rect1.center))
+        self.screen.blit(c2, c2.get_rect(center=rect2.center))
     # --------------------------------
     def draw_object(self, obj):
         x, y = obj["x"], obj["y"]
