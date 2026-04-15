@@ -6,6 +6,8 @@ from screens.mazegame import MazeGame
 from screens.hiddenobject import HiddenObjectGame
 from screens.minipuzzle import MiniPuzzleGame
 from screens.knowledgegame import KnowledgeGame
+from screens.nameandremember import NameAndRememberGame
+from ui.button import Button  # Import Button class
 
 
 class StageSelect:
@@ -14,51 +16,57 @@ class StageSelect:
         self.w, self.h = screen.get_size()
         self.main_menu = main_menu_instance
 
-        # --- Use menu background ---
-        self.bg_image = self.main_menu.bg_image
+        # --- Background ---
+        self.bg_image = getattr(self.main_menu, 'bg_image', None)
         self.bg_color = getattr(self.main_menu, 'bg_color', (50, 150, 255))
 
-        # Fonts
+        # --- Fonts ---
         self.title_font = pygame.font.SysFont("Comic Sans MS", 64, bold=True)
         self.stage_font = pygame.font.SysFont("Comic Sans MS", 48, bold=True)
         self.game_font = pygame.font.SysFont("Comic Sans MS", 24, bold=True)
         self.small_font = pygame.font.SysFont("Comic Sans MS", 20)
 
-        # Colors for stages
+        # --- Colors ---
         self.stage_colors = [
-            (255, 140, 0),  # Orange - Stage 1 (Catch Game)
-            (255, 215, 0),  # Gold - Stage 2 (Hidden Object Game)
-            (50, 205, 50),  # Lime Green - Stage 3 (Mini Puzzle Game)
-            (150, 150, 150),  # Gray - Stage 4 (Coming Soon)
-            (150, 150, 150),  # Gray - Stage 5 (Coming Soon)
-            (150, 150, 150),  # Gray - Stage 6 (Coming Soon)
-            (147, 112, 219),  # Purple - Stage 7 (Knowledge Game)
-            (65, 105, 225),  # Royal Blue - Stage 8 (Maze Game)
+            (255, 140, 0),  # Stage 1
+            (255, 215, 0),  # Stage 2
+            (50, 205, 50),  # Stage 3
+            (147, 112, 219),  # Stage 4 unlocked - Name & Remember
+            (150, 150, 150),  # Stage 5
+            (150, 150, 150),  # Stage 6
+            (147, 112, 219),  # Stage 7
+            (65, 105, 225),  # Stage 8
         ]
 
         self.WHITE = (255, 255, 255)
-        self.YELLOW = (255, 255, 0)
         self.BLACK = (0, 0, 0)
         self.GRAY = (150, 150, 150)
 
-        # Exit button from menu
-        self.exit_rect = self.main_menu.buttons[-1].rect  # assume last bottom button is Exit
+        # --- Exit button (on left side) ---
+        btn_size = 80
+        left_margin = 20  # Changed from right margin to left margin
+        try:
+            self.exit_button = Button(
+                (left_margin, 20, btn_size, btn_size),  # Now on left side
+                action=None,  # Will handle manually
+                image_path="assets/images/exitbutton.png"
+            )
+        except:
+            # Fallback if Button class fails
+            self.exit_button = pygame.Rect(left_margin, 20, btn_size, btn_size)
+            self.exit_button_fallback = True
         self.exit_hover = False
 
-        # Stage selection buttons
+        # --- Stage buttons ---
         self.stage_buttons = []
         self.create_stage_buttons()
 
-        # Game instances
+        # --- Game instance ---
         self.current_game = None
 
     def create_stage_buttons(self):
-        """Create 8 stage selection buttons"""
-        button_width = 150
-        button_height = 150
-        gap_x = 40
-
-        # Calculate positions for 4 columns
+        """Create all 8 stage buttons"""
+        button_width, button_height, gap_x = 150, 150, 40
         cols = 4
         total_width = cols * button_width + (cols - 1) * gap_x
         start_x = (self.w - total_width) // 2
@@ -68,7 +76,6 @@ class StageSelect:
         for i in range(4):
             stage_num = i + 1
             x = start_x + i * (button_width + gap_x)
-
             if stage_num == 1:
                 game_type = "catch"
                 game_name = "Catch Game"
@@ -84,11 +91,11 @@ class StageSelect:
                 game_name = "Mini Puzzle"
                 icon = "🧩"
                 locked = False
-            else:  # Stage 4
-                game_type = None
-                game_name = "Coming Soon"
-                icon = "🔒"
-                locked = True
+            else:  # Stage 4 unlocked
+                game_type = "memory"
+                game_name = "Name & Remember"
+                icon = "🧠"
+                locked = False
 
             self.stage_buttons.append({
                 "rect": pygame.Rect(x, first_row_y, button_width, button_height),
@@ -106,7 +113,6 @@ class StageSelect:
         for i in range(4):
             stage_num = i + 5
             x = start_x + i * (button_width + gap_x)
-
             if stage_num == 7:
                 game_type = "knowledge"
                 game_name = "Knowledge Game"
@@ -117,7 +123,7 @@ class StageSelect:
                 game_name = "Maze Game"
                 icon = "🌀"
                 locked = False
-            else:  # Stages 5 and 6
+            else:  # Stages 5 & 6 locked
                 game_type = None
                 game_name = "Coming Soon"
                 icon = "🔒"
@@ -135,60 +141,67 @@ class StageSelect:
             })
 
     def start_game(self, game_type, stage):
-        """Start the selected game"""
-        print(f"Starting {game_type} on Stage {stage}")
-
+        """Start selected game"""
         if game_type == "catch":
             self.current_game = CatchGame(self.screen)
             self.current_game.current_stage = stage
             self.main_menu.current_screen = "catch"
             self.main_menu.catch_game = self.current_game
-
-        elif game_type == "maze":
-            self.current_game = MazeGame(self.screen)
-            self.current_game.current_stage = stage
-            self.main_menu.current_screen = "maze"
-            self.main_menu.maze_game = self.current_game
-
         elif game_type == "hidden":
             self.current_game = HiddenObjectGame(self.screen)
             self.current_game.current_stage = stage
             self.main_menu.current_screen = "hidden"
             self.main_menu.hidden_game = self.current_game
-
         elif game_type == "puzzle":
             self.current_game = MiniPuzzleGame(self.screen)
             self.current_game.current_stage = stage
             self.main_menu.current_screen = "puzzle"
             self.main_menu.puzzle_game = self.current_game
-
         elif game_type == "knowledge":
             self.current_game = KnowledgeGame(self.screen)
             self.current_game.current_stage = stage
             self.main_menu.current_screen = "knowledge"
             self.main_menu.knowledge_game = self.current_game
+        elif game_type == "memory":
+            self.current_game = NameAndRememberGame(self.screen, self.main_menu)  # Pass main_menu
+            self.current_game.current_stage = stage
+            self.main_menu.current_screen = "memory"
+            self.main_menu.memory_game = self.current_game
+        elif game_type == "maze":  # Add this block
+            self.current_game = MazeGame(self.screen)
+            self.current_game.current_stage = stage
+            self.main_menu.current_screen = "maze"
+            self.main_menu.maze_game = self.current_game
 
     def handle_event(self, event):
-        """Handle pygame events"""
         if event.type == pygame.MOUSEMOTION:
-            self.exit_hover = self.exit_rect.collidepoint(event.pos)
+            # Exit button hover
+            if hasattr(self, 'exit_button'):
+                if isinstance(self.exit_button, Button):
+                    self.exit_hover = self.exit_button.rect.collidepoint(event.pos)
+                else:
+                    self.exit_hover = self.exit_button.collidepoint(event.pos)
+
+            # Stage buttons hover
             for button in self.stage_buttons:
                 button["hover"] = button["rect"].collidepoint(event.pos)
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
-            if event.button == 1:  # Left click
-                # Check exit button
-                if self.exit_rect.collidepoint(event.pos):
-                    return "back"
+            if event.button == 1:
+                # Check exit button (now on left side)
+                if hasattr(self, 'exit_button'):
+                    if isinstance(self.exit_button, Button) and self.exit_button.rect.collidepoint(event.pos):
+                        return "back"
+                    elif isinstance(self.exit_button, pygame.Rect) and self.exit_button.collidepoint(event.pos):
+                        return "back"
 
                 # Check stage buttons
                 for button in self.stage_buttons:
                     if button["rect"].collidepoint(event.pos):
                         if not button["locked"]:
                             self.start_game(button["game"], button["stage"])
-                            return None
                         else:
-                            print(f"Stage {button['stage']} is locked - Coming Soon!")
+                            print(f"Stage {button['stage']} is locked")
 
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
@@ -197,13 +210,11 @@ class StageSelect:
         return None
 
     def update(self):
-        """Update current game if active"""
         if self.current_game:
             self.current_game.update()
 
     def draw(self):
-        """Draw everything to the screen"""
-        # Background from menu
+        # Background
         if self.bg_image:
             self.screen.blit(self.bg_image, (0, 0))
         else:
@@ -211,34 +222,41 @@ class StageSelect:
 
         # Title
         title = self.title_font.render("SELECT STAGE", True, self.WHITE)
-        title_rect = title.get_rect(center=(self.w // 2, 80))
         shadow = self.title_font.render("SELECT STAGE", True, self.BLACK)
-        shadow_rect = shadow.get_rect(center=(self.w // 2 + 4, 84))
-        self.screen.blit(shadow, shadow_rect)
-        self.screen.blit(title, title_rect)
+        self.screen.blit(shadow, (self.w // 2 - title.get_width() // 2 + 4, 84))
+        self.screen.blit(title, (self.w // 2 - title.get_width() // 2, 80))
 
-        # "Available Now" text
-        available_title = self.game_font.render("AVAILABLE NOW", True, (100, 255, 100))
-        available_rect = available_title.get_rect(center=(self.w // 2, self.h // 2 - 180))
-        self.screen.blit(available_title, available_rect)
+        # Draw exit button (on left side)
+        if hasattr(self, 'exit_button'):
+            if isinstance(self.exit_button, Button):
+                self.exit_button.draw(self.screen)
+            else:
+                # Draw fallback exit button
+                pygame.draw.rect(self.screen, (255, 0, 0), self.exit_button)
+                font = pygame.font.SysFont(None, 50)
+                text = font.render("X", True, self.WHITE)
+                text_rect = text.get_rect(center=self.exit_button.center)
+                self.screen.blit(text, text_rect)
 
-        # Draw Exit button from menu
-        if hasattr(self.main_menu, 'buttons') and len(self.main_menu.buttons) > 0:
-            exit_button = self.main_menu.buttons[-1]  # Last bottom button is Exit
-            exit_button.draw(self.screen)
+            # Draw hover effect
+            if self.exit_hover:
+                if isinstance(self.exit_button, Button):
+                    pygame.draw.rect(self.screen, self.WHITE, self.exit_button.rect.inflate(10, 10), 3,
+                                     border_radius=10)
+                else:
+                    pygame.draw.rect(self.screen, self.WHITE, self.exit_button.inflate(10, 10), 3, border_radius=10)
 
         # Draw stage buttons
         for button in self.stage_buttons:
             color = button["color"]
             if button["hover"] and not button["locked"]:
                 color = tuple(min(c + 40, 255) for c in color)
-                # Draw highlight
                 pygame.draw.rect(self.screen, self.WHITE, button["rect"].inflate(10, 10), border_radius=18)
 
             # Draw button background
             pygame.draw.rect(self.screen, color, button["rect"], border_radius=15)
 
-            # Draw button border
+            # Draw border
             border_color = self.WHITE if not button["locked"] else (80, 80, 80)
             pygame.draw.rect(self.screen, border_color, button["rect"], 4, border_radius=15)
 
@@ -253,20 +271,9 @@ class StageSelect:
             self.screen.blit(stage_text, stage_rect)
 
             # Draw game name
-            name_color = self.WHITE if not button["locked"] else (180, 180, 180)
-            game_text = self.small_font.render(button["game_name"], True, name_color)
+            text_color = self.WHITE if not button["locked"] else (180, 180, 180)
+            game_text = self.small_font.render(button["game_name"], True, text_color)
             game_rect = game_text.get_rect(center=(button["rect"].centerx, button["rect"].bottom - 25))
             self.screen.blit(game_text, game_rect)
-
-        # Instructions
-        inst_text = self.small_font.render("Click on Stage 1, 2, 3, 7, or 8 to play!", True, self.WHITE)
-        inst_rect = inst_text.get_rect(center=(self.w // 2, self.h - 50))
-
-        # Draw instruction background
-        bg_rect = inst_rect.inflate(20, 10)
-        bg_rect.center = inst_rect.center
-        pygame.draw.rect(self.screen, (0, 0, 0, 128), bg_rect)
-        pygame.draw.rect(self.screen, self.WHITE, bg_rect, 2)
-        self.screen.blit(inst_text, inst_rect)
 
         pygame.display.flip()

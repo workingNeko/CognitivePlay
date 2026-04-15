@@ -9,7 +9,7 @@ pygame.display.set_caption("SmartPlay Kinder")
 
 clock = pygame.time.Clock()
 menu = MainMenu(screen)
-
+pygame.mixer.init()
 running = True
 while running:
     for event in pygame.event.get():

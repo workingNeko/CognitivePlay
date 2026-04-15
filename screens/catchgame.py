@@ -15,6 +15,20 @@ class CatchGame:
         self.bg_image = pygame.image.load(bg_path).convert()
         self.bg_image = pygame.transform.scale(self.bg_image, (self.width, self.height))
 
+        # Stop any currently playing background music (e.g. from main menu)
+        pygame.mixer.music.stop()
+        # Play catch game background music
+        catchgame_music = os.path.join("assets", "sounds", "catchgamesound.wav")
+        pygame.mixer.music.load(catchgame_music)
+        pygame.mixer.music.play(-1)
+
+        # Sound effects
+        self.bomb_sound = pygame.mixer.Sound(os.path.join("assets", "sounds", "bomb.mp3"))
+        self.drop_sound = pygame.mixer.Sound(os.path.join("assets", "sounds", "drop.mp3"))
+        self.drop_shape = pygame.mixer.Sound(os.path.join("assets", "sounds", "notcatched.mp3"))
+        self.gameover_sound = pygame.mixer.Sound(os.path.join("assets", "sounds", "gameover.mp3"))
+        self.gameover_played = False
+
         # Exit button
         exit_path = os.path.join("assets", "images", "exitbutton.png")
         self.exit_image = pygame.image.load(exit_path).convert_alpha()
@@ -48,7 +62,7 @@ class CatchGame:
         self.bomb_frame_index = 0
         self.bomb_anim_speed = 0.2
 
-        # Bomb explosion animation (YOU ALREADY HAD THIS)
+        # Bomb explosion animation
         self.explosion_frames = []
         for i in range(1, 5):
             path = os.path.join("assets", "images", f"bombexplosion{i}.png")
@@ -87,7 +101,7 @@ class CatchGame:
         for key in self.heart_images:
             self.heart_images[key] = pygame.transform.scale(self.heart_images[key], (heart_size, heart_size))
 
-        # Basket
+        # Basket image
         basket_path = os.path.join("assets", "images", "basket.png")
         self.basket_img = pygame.image.load(basket_path).convert_alpha()
         self.basket_width, self.basket_height = 300, 80
@@ -124,6 +138,7 @@ class CatchGame:
         self.objects = []
         self.game_over = False
         self.win = False
+        self.gameover_played = False
         self.targets = {
             "circle": 5,
             "square": 5,
@@ -131,7 +146,7 @@ class CatchGame:
         }
 
         # Heart blinking effects
-        self.heart_blinks = {}  # Dictionary to track blinking hearts
+        self.heart_blinks = {}
 
     # --------------------------------
     def spawn_object(self):
@@ -169,6 +184,7 @@ class CatchGame:
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if self.exit_button.collidepoint(event.pos):
+                pygame.mixer.music.stop()  # Stop catch game music when exiting
                 return "back"
 
         if event.type == pygame.KEYDOWN:
@@ -225,16 +241,15 @@ class CatchGame:
 
             if rect.colliderect(self.basket):
                 if obj["type"] == "bomb":
+                    self.bomb_sound.play()
                     # Start blinking effect for the heart that will be lost
-                    heart_index = self.lives - 1  # The heart that will be lost
+                    heart_index = self.lives - 1
                     if heart_index >= 0 and heart_index < 5:
                         self.heart_blinks[heart_index] = {
                             "start_time": time.time(),
                             "active": True,
-                            "permanent_remove": False  # Will be set to True after blinking
+                            "permanent_remove": False
                         }
-
-                    # Don't remove life immediately - wait for blink to finish
                     # EXPLOSION TRIGGER
                     self.active_explosions.append({
                         "x": self.basket.centerx,
@@ -242,8 +257,8 @@ class CatchGame:
                         "frame": 0,
                         "last_update": time.time()
                     })
-
                 else:
+                    self.drop_sound.play()
                     self.score += 10
                     if self.targets[obj["type"]] > 0:
                         self.targets[obj["type"]] -= 1
@@ -254,8 +269,9 @@ class CatchGame:
                     self.win = True
 
             elif obj["y"] > self.height:
-                if obj["type"] != "bomb":
-                    # Start blinking effect for the heart that will be lost
+                if obj ["type"] != "bomb":
+                    self.drop_shape.play()
+
                     heart_index = self.lives - 1
                     if heart_index >= 0 and heart_index < 5:
                         self.heart_blinks[heart_index] = {
@@ -263,7 +279,6 @@ class CatchGame:
                             "active": True,
                             "permanent_remove": False
                         }
-
                 self.objects.remove(obj)
 
         # UPDATE EXPLOSIONS
@@ -283,26 +298,22 @@ class CatchGame:
             if blink_data["active"]:
                 time_elapsed = current_time - blink_data["start_time"]
 
-                # Blink for 0.8 seconds (2 blinks = on-off-on-off, each state 0.2 seconds)
                 if time_elapsed >= 0.8:
-                    # Blinking finished, mark for permanent removal
                     blink_data["permanent_remove"] = True
                     blink_data["active"] = False
-                    self.lives -= 1  # Actually remove the life after blinking
+                    self.lives -= 1
 
-                    if self.lives <= 0:
+                    if self.lives <= 0 and not self.gameover_played:
+                        self.gameover_sound.play()
+                        self.gameover_played = True
                         self.game_over = True
                 else:
-                    # Calculate blink state (True for heart1, False for heart2)
-                    # Alternate every 0.2 seconds
                     blink_state = (int(time_elapsed / 0.2) % 2 == 0)
                     blink_data["state"] = blink_state
 
-            # Check if this heart should be permanently removed
             if blink_data.get("permanent_remove", False):
                 hearts_to_remove.append(heart_index)
 
-        # Remove completed blink animations
         for heart_index in hearts_to_remove:
             del self.heart_blinks[heart_index]
 
@@ -320,19 +331,14 @@ class CatchGame:
         for obj in self.objects:
             self.draw_object(obj)
 
-        # DRAW EXPLOSIONS
         for explosion in self.active_explosions:
             frame = self.explosion_frames[explosion["frame"]]
             rect = frame.get_rect(center=(explosion["x"], explosion["y"]))
             self.screen.blit(frame, rect)
 
-        # Hearts - Draw all hearts including blinking ones
+        # Hearts
         heart_width = self.heart_images["normal"].get_width()
-
-        # Calculate how many hearts to show (lives + blinking hearts that haven't been removed yet)
         total_hearts_to_draw = self.lives
-
-        # Add any hearts that are blinking but haven't been permanently removed yet
         for heart_index in self.heart_blinks.keys():
             if heart_index >= total_hearts_to_draw:
                 total_hearts_to_draw = heart_index + 1
@@ -340,18 +346,13 @@ class CatchGame:
         for i in range(total_hearts_to_draw):
             x_pos = 40 + i * (heart_width + 5)
             y_pos = 160
-
-            # Check if this heart is blinking
             if i in self.heart_blinks and self.heart_blinks[i]["active"]:
-                # Use heart1 or heart2 based on blink state
                 if self.heart_blinks[i]["state"]:
                     self.screen.blit(self.heart_images["normal"], (x_pos, y_pos))
                 else:
                     self.screen.blit(self.heart_images["damaged"], (x_pos, y_pos))
             elif i < self.lives:
-                # Normal heart (not blinking and still alive)
                 self.screen.blit(self.heart_images["normal"], (x_pos, y_pos))
-            # If i >= self.lives, it's a blinking heart that will be removed soon
 
         score = self.font.render(f"Score: {self.score}", True, self.TEXT)
         self.screen.blit(score, (self.width - 250, 150))
