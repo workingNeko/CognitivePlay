@@ -4,6 +4,7 @@ import os
 import json
 import random
 import time
+import math
 
 
 class HiddenObjectGame:
@@ -19,14 +20,13 @@ class HiddenObjectGame:
         self.running = True
         self.last_activity_time = time.time()
         self.idle_timer = 3  # seconds
-        self.moving_object_index = None
-        self.move_start_time = None
-        self.move_duration = 2  # seconds
-        self.move_start_pos = None
-        self.move_end_pos = None
         self.game_completed = False
         self.show_congrats = False
         self.congrats_timer = 0
+
+        # Idle shake variables
+        self.shaking_toy_index = None  # Index of the toy currently shaking
+        self.shake_start_time = None  # When the shake began (for smooth animation)
 
         # Collected items section
         self.collected_items = []
@@ -164,48 +164,45 @@ class HiddenObjectGame:
         """Return list of toys that haven't been collected yet"""
         return [toy for toy in self.toys if not toy["collected"]]
 
-    def start_idle_movement(self):
-        """Start moving a random uncollected toy"""
+    def stop_shaking(self):
+        """Stop the current shaking effect"""
+        self.shaking_toy_index = None
+        self.shake_start_time = None
+
+    def start_idle_shake(self):
+        """Start shaking a random uncollected toy smoothly"""
         uncollected = self.get_uncollected_toys()
         if uncollected and not self.game_completed:
-            self.moving_object_index = random.randint(0, len(uncollected) - 1)
-            toy = uncollected[self.moving_object_index]
+            # Pick a random uncollected toy
+            random_toy = random.choice(uncollected)
+            self.shaking_toy_index = self.toys.index(random_toy)
+            self.shake_start_time = time.time()
 
-            # Store original position and set movement parameters
-            self.move_start_pos = (toy["rect"].x, toy["rect"].y)
-            self.move_start_time = time.time()
+    def get_shake_offset(self):
+        """Calculate smooth shake offset based on elapsed time"""
+        if self.shaking_toy_index is None or self.shake_start_time is None:
+            return (0, 0)
 
-            # Calculate end position (small movement in random direction)
-            dx = random.randint(-30, 30)
-            dy = random.randint(-30, 30)
-            self.move_end_pos = (
-                max(20, min(self.w - toy["rect"].width - 20, self.move_start_pos[0] + dx)),
-                max(50, min(self.h - toy["rect"].height - 50, self.move_start_pos[1] + dy))
-            )
+        # Check if the shaking toy is still uncollected
+        if self.shaking_toy_index < len(self.toys):
+            toy = self.toys[self.shaking_toy_index]
+            if toy["collected"]:
+                self.stop_shaking()
+                return (0, 0)
+        else:
+            self.stop_shaking()
+            return (0, 0)
 
-    def update_idle_movement(self):
-        """Update the position of the moving toy"""
-        if self.moving_object_index is not None and self.move_start_time and not self.game_completed:
-            uncollected = self.get_uncollected_toys()
-            if uncollected and self.moving_object_index < len(uncollected):
-                toy = uncollected[self.moving_object_index]
+        # Calculate elapsed time in seconds
+        elapsed = time.time() - self.shake_start_time
 
-                # Calculate progress (0 to 1)
-                elapsed = time.time() - self.move_start_time
-                progress = min(1.0, elapsed / self.move_duration)
+        # Use sine and cosine waves with different frequencies for smooth, natural motion
+        # Frequencies: 12 Hz for x, 15 Hz for y (fast enough to look like shaking)
+        # Magnitude: 4 pixels (subtle but noticeable)
+        offset_x = math.sin(elapsed * 12.0 * math.pi) * 4
+        offset_y = math.cos(elapsed * 15.0 * math.pi) * 4
 
-                # Interpolate position
-                if progress < 1.0:
-                    # Move toy
-                    x = self.move_start_pos[0] + (self.move_end_pos[0] - self.move_start_pos[0]) * progress
-                    y = self.move_start_pos[1] + (self.move_end_pos[1] - self.move_start_pos[1]) * progress
-                    toy["rect"].x = int(x)
-                    toy["rect"].y = int(y)
-                else:
-                    # Movement complete
-                    self.moving_object_index = None
-                    self.move_start_time = None
-                    self.last_activity_time = time.time()
+        return (int(offset_x), int(offset_y))
 
     # ======================================================
     # EVENTS
@@ -217,9 +214,8 @@ class HiddenObjectGame:
             # Reset idle timer on mouse movement
             if not self.game_completed:
                 self.last_activity_time = time.time()
-                # Stop any ongoing movement when user moves mouse
-                self.moving_object_index = None
-                self.move_start_time = None
+                # Stop shaking when user interacts
+                self.stop_shaking()
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left click
@@ -234,6 +230,8 @@ class HiddenObjectGame:
 
                 # Reset idle timer on click
                 self.last_activity_time = time.time()
+                # Stop shaking when user clicks
+                self.stop_shaking()
 
                 # Check if clicked on a toy
                 clicked_anything = False
@@ -242,6 +240,10 @@ class HiddenObjectGame:
                         clicked_anything = True
                         # Mark as collected
                         toy["collected"] = True
+
+                        # If this was the shaking toy, stop shaking
+                        if self.shaking_toy_index == i:
+                            self.stop_shaking()
 
                         # Add to collected items
                         self.collected_items.append(toy.copy())
@@ -280,35 +282,41 @@ class HiddenObjectGame:
         else:
             self.show_congrats = False
 
-        # Check for idle movement (only if game not completed)
+        # Check for idle shake (only if game not completed)
         if not self.game_completed:
-            if time.time() - self.last_activity_time > self.idle_timer:
-                if self.moving_object_index is None and self.get_uncollected_toys():
-                    self.start_idle_movement()
-
-            # Update idle movement
-            self.update_idle_movement()
+            # If no shaking currently and idle time exceeded, start shaking
+            if (self.shaking_toy_index is None and
+                    time.time() - self.last_activity_time > self.idle_timer and
+                    self.get_uncollected_toys()):
+                self.start_idle_shake()
 
     # ======================================================
     # DRAWING
     # ======================================================
-    def draw_toy(self, toy, screen_pos=None):
-        """Draw toy image - removed hover effect"""
+    def draw_toy(self, toy):
+        """Draw toy image with smooth shake offset if applicable"""
         if toy["collected"]:
             return
 
-        rect = screen_pos if screen_pos else toy["rect"]
+        # Get current shake offset (only for the shaking toy)
+        offset = (0, 0)
+        if self.shaking_toy_index is not None and self.toys.index(toy) == self.shaking_toy_index:
+            offset = self.get_shake_offset()
+
+        # Apply offset to drawing position
+        draw_rect = toy["rect"].move(offset[0], offset[1])
+
         img_key = toy["image"]
 
         if img_key in self.toy_images:
             img = self.toy_images[img_key]
-            scaled_img = pygame.transform.scale(img, (rect.width, rect.height))
-            self.screen.blit(scaled_img, rect)
+            scaled_img = pygame.transform.scale(img, (draw_rect.width, draw_rect.height))
+            self.screen.blit(scaled_img, draw_rect)
         else:
             # Fallback
             color = self.GRAY
-            pygame.draw.rect(self.screen, color, rect, border_radius=8)
-            pygame.draw.rect(self.screen, self.BLACK, rect, 2, border_radius=8)
+            pygame.draw.rect(self.screen, color, draw_rect, border_radius=8)
+            pygame.draw.rect(self.screen, self.BLACK, draw_rect, 2, border_radius=8)
 
     def draw_collected_items(self):
         """Draw the collected items section with all toys visible and checkmarks when collected"""

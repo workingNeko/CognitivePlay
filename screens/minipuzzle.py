@@ -25,16 +25,16 @@ class MiniPuzzleGame:
             self.use_bg = False
             self.bg_color = (100, 150, 200)
 
-        # Puzzle dimensions
+        # Puzzle dimensions (2x2 = 4 pieces)
         self.rows = 2
-        self.cols = 3
-        self.total_pieces = self.rows * self.cols
+        self.cols = 2
+        self.total_pieces = self.rows * self.cols  # =4
 
         # Puzzle frame settings - CENTERED
-        frame_width = 450
-        frame_height = 300
+        frame_width = 300   # 2 * 150
+        frame_height = 300  # 2 * 150
         # Center the frame horizontally and vertically
-        frame_x = (self.w - frame_width) // 2 - 80  # Shift left more to make room for larger dashboard
+        frame_x = (self.w - frame_width) // 2   # Shift left to make room for dashboard
         frame_y = (self.h - frame_height) // 2
         self.frame_rect = pygame.Rect(frame_x, frame_y, frame_width, frame_height)
 
@@ -42,12 +42,12 @@ class MiniPuzzleGame:
         self.piece_width = frame_width // self.cols  # 150
         self.piece_height = frame_height // self.rows  # 150
 
-        # Dashboard area (right side) - LARGER to fit the pieces
-        dashboard_width = 380  # Increased from 280
-        dashboard_height = 600  # Increased from 400
+        # Dashboard area (right side) - LARGER to fit the 4 pieces
+        dashboard_width = 380
+        dashboard_height = 500
         self.dashboard_rect = pygame.Rect(
             self.frame_rect.right + 100,
-            self.frame_rect.top - 50,  # Move up a bit
+            self.frame_rect.top - 30,
             dashboard_width,
             dashboard_height
         )
@@ -93,7 +93,7 @@ class MiniPuzzleGame:
                         piece_surf.blit(scaled_duck, (0, 0), (src_x, src_y, self.piece_width, self.piece_height))
                         self.piece_surfaces.append(piece_surf)
 
-                print("Loaded duck image and pre-rendered pieces")
+                print("Loaded duck image and pre-rendered pieces (4 pieces)")
             except Exception as e:
                 print(f"Could not load duck image: {e}")
 
@@ -176,8 +176,7 @@ class MiniPuzzleGame:
         for i, pos_idx in enumerate(positions):
             correct = self.correct_pieces[pos_idx]
 
-            # Position in dashboard area (right side) - adjusted for larger pieces
-            # 2 columns with spacing
+            # Position in dashboard area (right side) - 2 columns with spacing
             dashboard_x = self.dashboard_rect.x + 30 + (i % 2) * (self.piece_width + 20)
             dashboard_y = self.dashboard_rect.y + 60 + (i // 2) * (self.piece_height + 15)
 
@@ -330,8 +329,8 @@ class MiniPuzzleGame:
                 self.screen.blit(self.checkmark, check_rect)
         else:
             # Fallback if no duck image
-            colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255), (0, 255, 255)]
-            color = colors[piece["surface_idx"] % 6]
+            colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
+            color = colors[piece["surface_idx"] % 4]
             pygame.draw.rect(self.screen, color, piece["rect"])
             pygame.draw.rect(self.screen, self.BLACK, piece["rect"], 2)
 
@@ -389,7 +388,7 @@ class MiniPuzzleGame:
             pygame.draw.line(self.screen, self.WHITE, (self.frame_rect.x, y),
                              (self.frame_rect.right, y), 2)
 
-        # Draw dashboard background (right side) - LARGER
+        # Draw dashboard background (right side)
         dashboard_surf = pygame.Surface((self.dashboard_rect.width, self.dashboard_rect.height), pygame.SRCALPHA)
         dashboard_surf.fill((50, 50, 50, 180))
         self.screen.blit(dashboard_surf, self.dashboard_rect)
@@ -400,12 +399,12 @@ class MiniPuzzleGame:
         dash_title_rect = dash_title.get_rect(centerx=self.dashboard_rect.centerx, top=self.dashboard_rect.top + 10)
         self.screen.blit(dash_title, dash_title_rect)
 
-        # Draw unplaced pieces in dashboard (right side)
+        # Draw unplaced pieces in dashboard
         for piece in self.pieces:
             if not piece["placed"]:
                 self.draw_piece(piece)
 
-        # Draw placed pieces in frame (center)
+        # Draw placed pieces in frame
         for piece in self.pieces:
             if piece["placed"]:
                 self.draw_piece(piece)
