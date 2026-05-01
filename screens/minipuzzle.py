@@ -116,7 +116,7 @@ class MiniPuzzleGame:
 
         self.exit_hover = False
 
-        # Fonts
+        # Fonts=
         self.title_font = pygame.font.SysFont("Comic Sans MS", 48, bold=True)
         self.large_font = pygame.font.SysFont("Comic Sans MS", 36, bold=True)
         self.medium_font = pygame.font.SysFont("Comic Sans MS", 24)
