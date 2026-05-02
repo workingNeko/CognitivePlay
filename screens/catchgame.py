@@ -2,14 +2,126 @@ import pygame
 import random
 import time
 import os
+import subprocess
+import sys
+import zipfile
+import urllib.request
+import platform
 
-# Try to import moviepy – if not installed, skip tutorial gracefully
+
+# ---------- Auto-install FFmpeg and deno ----------
+def download_file(url, dest):
+    """Download a file with progress reporting"""
+    print(f"Downloading {os.path.basename(dest)}...")
+    urllib.request.urlretrieve(url, dest)
+    print("Download complete!")
+
+
+def install_ffmpeg_windows():
+    """Download and install FFmpeg on Windows"""
+    ffmpeg_path = os.path.join(os.path.expanduser("~"), "ffmpeg")
+    ffmpeg_bin = os.path.join(ffmpeg_path, "bin", "ffmpeg.exe")
+
+    # Check if already installed
+    if os.path.exists(ffmpeg_bin):
+        # Add to PATH if not already there
+        if ffmpeg_path not in os.environ.get("PATH", ""):
+            os.environ["PATH"] += os.pathsep + os.path.join(ffmpeg_path, "bin")
+        return True
+
+    try:
+        print("FFmpeg not found. Downloading...")
+        # Download FFmpeg
+        ffmpeg_url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+        zip_path = os.path.join(os.path.expanduser("~"), "ffmpeg.zip")
+
+        download_file(ffmpeg_url, zip_path)
+
+        # Extract
+        print("Extracting FFmpeg...")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(os.path.expanduser("~"))
+
+        # Rename the extracted folder
+        extracted_folder = None
+        for item in os.listdir(os.path.expanduser("~")):
+            if item.startswith("ffmpeg-") and os.path.isdir(os.path.join(os.path.expanduser("~"), item)):
+                extracted_folder = os.path.join(os.path.expanduser("~"), item)
+                break
+
+        if extracted_folder:
+            # Move to ffmpeg folder
+            if os.path.exists(ffmpeg_path):
+                import shutil
+                shutil.rmtree(ffmpeg_path)
+            os.rename(extracted_folder, ffmpeg_path)
+
+        # Clean up
+        os.remove(zip_path)
+
+        # Add to PATH
+        os.environ["PATH"] += os.pathsep + os.path.join(ffmpeg_path, "bin")
+        print(f"FFmpeg installed to {ffmpeg_path}")
+        return True
+    except Exception as e:
+        print(f"Could not auto-install FFmpeg: {e}")
+        print("Please manually install FFmpeg from: https://ffmpeg.org/download.html")
+        return False
+
+
+def ensure_deno_installed():
+    """Install deno automatically if not present"""
+    try:
+        # Check if deno is already installed
+        result = subprocess.run(['deno', '--version'], capture_output=True, check=False)
+        if result.returncode == 0:
+            return True
+    except FileNotFoundError:
+        pass
+
+    # Try to install deno
+    system = platform.system()
+    try:
+        if system == "Windows":
+            print("Deno not found. Installing via winget...")
+            subprocess.run(['winget', 'install', 'Deno.Land.Deno', '--silent'],
+                           capture_output=True, check=False)
+        elif system == "Linux" or system == "Darwin":  # Darwin = macOS
+            print("Deno not found. Installing via shell script...")
+            install_cmd = 'curl -fsSL https://deno.land/install.sh | sh'
+            subprocess.run(install_cmd, shell=True, capture_output=True, check=False)
+
+        print("Deno installed. Please restart your game for changes to take effect.")
+        return False
+    except Exception as e:
+        print(f"Could not auto-install deno: {e}")
+        return True
+
+
+# Install FFmpeg and deno
+print("Checking for required dependencies...")
+FFMPEG_INSTALLED = install_ffmpeg_windows()
+DENO_INSTALLED = ensure_deno_installed()
+
+if not FFMPEG_INSTALLED:
+    print("WARNING: FFmpeg not available. Video playback may fail.")
+    print("Please install FFmpeg manually from: https://ffmpeg.org/download.html")
+
+# ---------- Try to import pyvidplayer2 for YouTube streaming ----------
 try:
-    from moviepy.editor import VideoFileClip
-    MOVIEPY_AVAILABLE = True
+    from pyvidplayer2 import Video
+
+    PYPVIDEO_AVAILABLE = True
 except ImportError:
-    MOVIEPY_AVAILABLE = False
-    print("moviepy not installed – video tutorial will be skipped")
+    PYPVIDEO_AVAILABLE = False
+    print("pyvidplayer2 not installed – video tutorial will be skipped")
+    print("Install with: pip install pyvidplayer2 yt-dlp")
+
+# ---------- Fix for Pillow 10+ ----------
+import PIL.Image
+
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
 
 class CatchGame:
@@ -22,14 +134,13 @@ class CatchGame:
         self.bg_image = pygame.image.load(bg_path).convert()
         self.bg_image = pygame.transform.scale(self.bg_image, (self.width, self.height))
 
-        # ---------- Video tutorial with margins ----------
-        self.state = "tutorial"           # "tutorial" -> "question" -> "game"
-        self.video_path = os.path.join("assets", "videos", "catchgametutorial.mp4")
-        self.video_clip = None
-        self.video_frame_iter = None
-        self.video_last_time = 0
-        self.video_frame_duration = 1 / 30
-        self.current_video_frame = None
+        # ---------- YouTube video tutorial ----------
+        self.state = "tutorial"  # "tutorial" -> "question" -> "game"
+        # 🔽 REPLACE THIS URL WITH YOUR ACTUAL YOUTUBE VIDEO URL
+        self.youtube_url = "https://www.youtube.com/watch?v=GBIIQ0kP15E"
+        self.video = None  # will be set if pyvidplayer2 works
+        self.loading_video = False
+        self.video_error = False  # track if video failed to load
 
         # Margins for video (2 inches ≈ 150 pixels on 96 DPI)
         self.video_margin = 150
@@ -39,22 +150,31 @@ class CatchGame:
         # Skip button (top‑right corner)
         self.skip_button = pygame.Rect(self.width - 150, 30, 120, 50)
 
-        # Try to load the video
-        if MOVIEPY_AVAILABLE and os.path.exists(self.video_path):
+        # ---------- Fade effect for smooth entry ----------
+        self.tutorial_fade_active = True
+        self.tutorial_fade_alpha = 255
+        self.tutorial_fade_start_time = time.time()
+        self.tutorial_fade_duration = 2.0  # 2 seconds fade from black
+
+        # ---------- Try to load YouTube video ----------
+        if PYPVIDEO_AVAILABLE and not self.video_error:
             try:
-                self.video_clip = VideoFileClip(self.video_path)
-                self.video_frame_duration = 1 / self.video_clip.fps
-                self.video_frame_iter = self.video_clip.iter_frames(fps=self.video_clip.fps, dtype="uint8")
-                self._video_next_frame()
-                self.video_last_time = time.time()
+                self.loading_video = True
+                print("Loading YouTube video...")
+                # Create video object from YouTube URL
+                self.video = Video(self.youtube_url, youtube=True)
+                # Set volume (0.0 to 1.0)
+                self.video.set_volume(0.8)
+                self.loading_video = False
+                self.tutorial_start_time = time.time()
+                print("YouTube video loaded – ready to play")
             except Exception as e:
-                print(f"Could not load video: {e}")
+                print(f"Could not load YouTube video: {e}")
+                self.video_error = True
                 self.skip_tutorial()
         else:
-            if not MOVIEPY_AVAILABLE:
-                print("moviepy not installed – skipping video tutorial")
-            else:
-                print("Video file not found – skipping tutorial")
+            if not PYPVIDEO_AVAILABLE:
+                print("pyvidplayer2 missing – skipping tutorial")
             self.skip_tutorial()
 
         # ---------- Stop any previous music ----------
@@ -170,42 +290,53 @@ class CatchGame:
         self.reset_game()
 
     # ---------- Video helpers ----------
-    def _video_next_frame(self):
-        """Fetch the next frame from the video iterator."""
-        if not self.video_frame_iter:
-            return
-        try:
-            frame = next(self.video_frame_iter)
-            frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
-            self.current_video_frame = frame
-        except StopIteration:
-            self.skip_tutorial()
-        except Exception as e:
-            print(f"Video frame error: {e}")
-            self.skip_tutorial()
-
     def skip_tutorial(self):
         """Exit tutorial mode and go to question mode."""
         if self.state == "tutorial":
             self.state = "question"
-            if self.video_clip:
-                self.video_clip.close()
-                self.video_clip = None
-            self.current_video_frame = None
+            # Stop and close video if it exists
+            if self.video:
+                try:
+                    self.video.stop()
+                except:
+                    pass
+                self.video = None
+            self.loading_video = False
 
     def draw_tutorial(self):
-        """Draw the video frame with margins and the skip button."""
-        # Draw full-screen background
+        """Draw the YouTube video frame with margins, skip button, fade overlay, and a border."""
         self.screen.blit(self.bg_image, (0, 0))
 
-        # Draw video frame scaled to fit within margins
-        if self.current_video_frame:
-            scaled = pygame.transform.scale(self.current_video_frame,
-                                            (self.video_display_width, self.video_display_height))
-            self.screen.blit(scaled, (self.video_margin, self.video_margin))
+        # If still loading, show message
+        if self.loading_video:
+            load_text = self.font.render("Loading YouTube video...", True, (255, 255, 255))
+            self.screen.blit(load_text, (self.width // 2 - load_text.get_width() // 2,
+                                         self.height // 2))
+        # Otherwise draw current video frame (scaled to margins)
+        elif self.video and not self.video_error:
+            try:
+                # Access the current frame as an attribute
+                if hasattr(self.video, 'frame_surf'):
+                    frame_surf = self.video.frame_surf
+                else:
+                    frame_surf = None
+
+                if frame_surf is not None:
+                    # Scale to fit the display area
+                    scaled = pygame.transform.scale(frame_surf,
+                                                    (self.video_display_width, self.video_display_height))
+                    self.screen.blit(scaled, (self.video_margin, self.video_margin))
+                else:
+                    # No frame yet (buffering)
+                    buffer_text = self.font.render("Buffering...", True, (255, 255, 255))
+                    self.screen.blit(buffer_text, (self.width // 2 - buffer_text.get_width() // 2,
+                                                   self.height // 2))
+            except Exception as e:
+                print(f"Error drawing video: {e}")
+                self.video_error = True
         else:
-            # Placeholder when video not loaded
-            placeholder = self.font.render("VIDEO TUTORIAL (PLACEHOLDER)", True, self.TEXT)
+            # Placeholder when no video loaded
+            placeholder = self.font.render("VIDEO TUTORIAL NOT AVAILABLE", True, self.TEXT)
             px = self.width // 2 - placeholder.get_width() // 2
             py = self.height // 2
             self.screen.blit(placeholder, (px, py))
@@ -218,15 +349,49 @@ class CatchGame:
         skip_text = self.font.render("SKIP", True, (255, 255, 255))
         self.screen.blit(skip_text, skip_text.get_rect(center=self.skip_button.center))
 
-    def update_tutorial(self):
-        if not self.video_frame_iter:
-            return
-        now = time.time()
-        if now - self.video_last_time >= self.video_frame_duration:
-            self.video_last_time = now
-            self._video_next_frame()
+        # --- DRAW THE VIDEO FRAME BORDER ---
+        border_rect = pygame.Rect(self.video_margin, self.video_margin,
+                                  self.video_display_width, self.video_display_height)
+        pygame.draw.rect(self.screen, (255, 255, 255), border_rect, 3, border_radius=10)
 
-    # ---------- Question mode (unchanged, full screen) ----------
+        # Fade overlay only after loading
+        if not self.loading_video and not self.video_error and self.tutorial_fade_active:
+            fade_surface = pygame.Surface((self.width, self.height))
+            fade_surface.fill((0, 0, 0))
+            fade_surface.set_alpha(self.tutorial_fade_alpha)
+            self.screen.blit(fade_surface, (0, 0))
+
+    def update_tutorial(self):
+        """Update the tutorial video playback."""
+        # Update video playback
+        if self.loading_video or self.video_error or not self.video:
+            return
+
+        try:
+            # Tell the video to update (advance time, fetch new frames)
+            self.video.update()
+
+            # Check if video is still playing (using active attribute)
+            if hasattr(self.video, 'active') and not self.video.active:
+                self.skip_tutorial()
+                return
+        except Exception as e:
+            print(f"Video update error: {e}")
+            self.video_error = True
+            self.skip_tutorial()
+            return
+
+        # Update fade effect
+        if self.tutorial_fade_active:
+            now = time.time()
+            elapsed = now - self.tutorial_fade_start_time
+            if elapsed >= self.tutorial_fade_duration:
+                self.tutorial_fade_active = False
+                self.tutorial_fade_alpha = 0
+            else:
+                self.tutorial_fade_alpha = int(255 * (1 - elapsed / self.tutorial_fade_duration))
+
+    # ---------- Question mode (unchanged) ----------
     def draw_question_screen(self):
         self.screen.blit(self.bg_image, (0, 0))
         q = self.questions[self.current_question]
@@ -248,7 +413,7 @@ class CatchGame:
         color2 = self.choice_colors.get(choice2, (200, 200, 255))
 
         def darken(c):
-            return (max(c[0]-40, 0), max(c[1]-40, 0), max(c[2]-40, 0))
+            return (max(c[0] - 40, 0), max(c[1] - 40, 0), max(c[2] - 40, 0))
 
         if rect1.collidepoint(mouse_pos):
             color1 = darken(color1)
@@ -268,13 +433,16 @@ class CatchGame:
     def check_answer(self, answer):
         q = self.questions[self.current_question]
         if answer == q["correct"]:
+            self.drop_sound.play()
             self.current_question += 1
             if self.current_question >= len(self.questions):
                 self.state = "game"
                 pygame.mixer.music.load(self.catchgame_music)
                 pygame.mixer.music.play(-1)
+        else:
+            self.drop_shape.play()
 
-    # ---------- Game logic (full screen, unchanged) ----------
+    # ---------- Game logic (unchanged) ----------
     def reset_game(self):
         self.lives = 5
         self.score = 0
@@ -344,8 +512,8 @@ class CatchGame:
                         obj["frame_index"] = 0
                     obj["last_frame_time"] = now
 
-            rect = pygame.Rect(obj["x"] - self.shape_size//2,
-                               obj["y"] - self.shape_size//2,
+            rect = pygame.Rect(obj["x"] - self.shape_size // 2,
+                               obj["y"] - self.shape_size // 2,
                                self.shape_size, self.shape_size)
 
             if rect.colliderect(self.basket):
@@ -415,7 +583,7 @@ class CatchGame:
         self.screen.blit(self.bg_image, (0, 0))
 
         title = self.title_font.render("Catch the Shapes!", True, self.TEXT)
-        self.screen.blit(title, (self.width//2 - title.get_width()//2, 30))
+        self.screen.blit(title, (self.width // 2 - title.get_width() // 2, 30))
         self.screen.blit(self.basket_img, self.basket.topleft)
 
         for obj in self.objects:
@@ -426,7 +594,7 @@ class CatchGame:
                 self.screen.blit(img, rect)
             elif obj["type"] == "bomb":
                 frame = self.bomb_frames[int(self.bomb_frame_index)]
-                self.screen.blit(frame, (obj["x"]-24, obj["y"]-24))
+                self.screen.blit(frame, (obj["x"] - 24, obj["y"] - 24))
 
         for exp in self.active_explosions:
             frame = self.explosion_frames[exp["frame"]]
@@ -465,14 +633,19 @@ class CatchGame:
         overlay.fill((0, 0, 0, 180))
         self.screen.blit(overlay, (0, 0))
         msg = self.title_font.render(text, True, color)
-        self.screen.blit(msg, (self.width//2 - msg.get_width()//2, self.height//2 - 50))
+        self.screen.blit(msg, (self.width // 2 - msg.get_width() // 2, self.height // 2 - 50))
         hint = self.small_font.render("Press EXIT to return to Menu", True, (255, 255, 255))
-        self.screen.blit(hint, (self.width//2 - hint.get_width()//2, self.height//2 + 20))
+        self.screen.blit(hint, (self.width // 2 - hint.get_width() // 2, self.height // 2 + 20))
 
     # ---------- Master event handling & update loop ----------
     def handle_event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN and self.exit_button.collidepoint(event.pos):
             pygame.mixer.music.stop()
+            if self.video:
+                try:
+                    self.video.stop()
+                except:
+                    pass
             return "back"
 
         if self.state == "tutorial":
@@ -485,8 +658,8 @@ class CatchGame:
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = event.pos
                 q = self.questions[self.current_question]
-                rect1 = pygame.Rect(self.width//2 - 200, 400, 150, 60)
-                rect2 = pygame.Rect(self.width//2 + 50, 400, 150, 60)
+                rect1 = pygame.Rect(self.width // 2 - 200, 400, 150, 60)
+                rect2 = pygame.Rect(self.width // 2 + 50, 400, 150, 60)
                 if rect1.collidepoint(mx, my):
                     self.check_answer(q["choices"][0])
                 if rect2.collidepoint(mx, my):
